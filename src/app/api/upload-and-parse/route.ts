@@ -47,8 +47,9 @@ Return ONLY a valid JSON object matching this schema:
     const result = JSON.parse(cleanText);
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Internal Server Error';
     console.error('Error parsing file:', error);
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

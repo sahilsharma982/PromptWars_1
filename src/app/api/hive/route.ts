@@ -61,7 +61,7 @@ Respond ONLY with valid JSON:
     const plan = JSON.parse(result.text) as OrchestratorPlan;
     // Guard complexity
     const validComplexity = ['light', 'standard', 'heavy'] as const;
-    if (!validComplexity.includes(plan.complexity as any)) plan.complexity = 'standard';
+    if (!(validComplexity as readonly string[]).includes(plan.complexity)) plan.complexity = 'standard';
     // Guard agents
     if (!Array.isArray(plan.agents)) plan.agents = ['academic'];
     plan.agents = plan.agents.filter(a => a in AGENT_DEFS) as AgentKey[];
@@ -79,7 +79,7 @@ interface SpecialistResult {
   summary: string;
   reply: string;
   action: 'none' | 'schedule_event' | 'generate_quiz' | 'show_insight';
-  action_payload: Record<string, any>;
+  action_payload: Record<string, unknown>;
 }
 
 async function runSpecialist(agentKey: AgentKey, message: string, tier: Tier, context: StudentContext): Promise<SpecialistResult> {
@@ -166,10 +166,10 @@ export async function POST(req: Request) {
     // 4. Pick primary action (first non-none)
     const primaryAction = specialistResults.find(r => r.action !== 'none');
 
-    const response: Record<string, any> = {
+    const response = {
       reply: finalReply,
-      type: 'text',
-      metadata: null,
+      type: 'text' as string,
+      metadata: null as Record<string, unknown> | null,
       agents_invoked: specialistResults.map(r => ({
         key: r.agent,
         name: AGENT_DEFS[r.agent].name,
@@ -209,8 +209,9 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(response);
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Internal Server Error';
     console.error('[Hive API Error]', error);
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

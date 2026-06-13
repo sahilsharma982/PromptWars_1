@@ -12,9 +12,10 @@ export async function GET() {
   try {
     const events = await getCalendarEvents(DEMO_USER_ID);
     return NextResponse.json({ events });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('[Calendar API] GET error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -56,9 +57,10 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ event: created, persisted: true });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('[Calendar API] POST error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -74,8 +76,9 @@ export async function DELETE(req: Request) {
 
     const ok = await deleteCalendarEvent(id);
     return NextResponse.json({ deleted: ok });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('[Calendar API] DELETE error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

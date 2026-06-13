@@ -10,9 +10,10 @@ export async function GET() {
   try {
     const conversations = await getConversations(DEMO_USER_ID);
     return NextResponse.json({ conversations, persisted: !!process.env.NEXT_PUBLIC_SUPABASE_URL });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('[Conversations API] GET error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -44,8 +45,9 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ conversation: created, persisted: true });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('[Conversations API] POST error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

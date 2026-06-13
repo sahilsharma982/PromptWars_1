@@ -69,8 +69,9 @@ export async function PATCH(req: NextRequest) {
     if (!Array.isArray(tree)) return NextResponse.json({ error: 'Invalid tree' }, { status: 400 });
     await saveToDB(tree, raw ?? '');
     return NextResponse.json({ ok: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -136,8 +137,9 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ tree, model: result.model });
-  } catch (err: any) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     console.error('[syllabus] Error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

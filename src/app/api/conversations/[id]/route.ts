@@ -32,9 +32,10 @@ export async function GET(_req: Request, context: RouteContext) {
       messages,
       persisted: !!conversation,
     });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('[Conversations API] GET [id] error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -49,8 +50,9 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     const ok = await updateConversationTitle(id, DEMO_USER_ID, title.trim());
     return NextResponse.json({ updated: ok, persisted: ok });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('[Conversations API] PATCH error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
