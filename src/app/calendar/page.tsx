@@ -159,6 +159,81 @@ function AddEventModal({
   );
 }
 
+// ── Calendar Skeleton ─────────────────────────────────────────────────────────
+
+function CalendarSkeleton() {
+  return (
+    <div className="max-w-5xl mx-auto py-8 px-0 animate-pulse">
+      {/* Header skeleton */}
+      <div className="flex items-center justify-between mb-8 px-1">
+        <div>
+          <div className="h-8 w-32 bg-[#E4E4E7] rounded-lg" />
+          <div className="h-4 w-52 bg-[#F4F4F5] rounded mt-2" />
+        </div>
+        <div className="flex gap-2">
+          <div className="h-9 w-36 bg-[#F4F4F5] rounded-xl" />
+          <div className="h-9 w-28 bg-[#E4E4E7] rounded-xl" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+        {/* Calendar grid skeleton */}
+        <div className="bg-white border border-[#E4E4E7] rounded-2xl overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-[#F4F4F5]">
+            <div className="h-6 w-36 bg-[#E4E4E7] rounded" />
+            <div className="flex gap-1">
+              <div className="w-8 h-8 bg-[#F4F4F5] rounded-lg" />
+              <div className="w-16 h-8 bg-[#F4F4F5] rounded-lg" />
+              <div className="w-8 h-8 bg-[#F4F4F5] rounded-lg" />
+            </div>
+          </div>
+          {/* Day headers */}
+          <div className="grid grid-cols-7 border-b border-[#F4F4F5]">
+            {['S','M','T','W','T','F','S'].map((d, i) => (
+              <div key={i} className="py-2 flex justify-center">
+                <div className="h-3 w-4 bg-[#F4F4F5] rounded" />
+              </div>
+            ))}
+          </div>
+          {/* Day cells */}
+          <div className="grid grid-cols-7">
+            {Array.from({ length: 35 }).map((_, i) => (
+              <div key={i} className="min-h-[80px] p-2 border-b border-r border-[#F4F4F5]">
+                <div className="w-6 h-6 bg-[#F4F4F5] rounded-full mb-1" />
+                {i % 4 === 0 && <div className="h-3.5 bg-[#F4F4F5] rounded mt-1" />}
+                {i % 7 === 2 && <div className="h-3.5 bg-[#F4F4F5] rounded mt-1" />}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Side panel skeleton */}
+        <div className="space-y-4">
+          <div className="bg-white border border-[#E4E4E7] rounded-2xl overflow-hidden shadow-sm">
+            <div className="px-5 py-4 border-b border-[#F4F4F5]">
+              <div className="h-3 w-20 bg-[#F4F4F5] rounded mb-2" />
+              <div className="h-7 w-32 bg-[#E4E4E7] rounded" />
+            </div>
+            <div className="px-5 py-8 flex flex-col items-center gap-2">
+              <div className="h-4 w-16 bg-[#F4F4F5] rounded" />
+              <div className="h-3 w-12 bg-[#F4F4F5] rounded" />
+            </div>
+          </div>
+          <div className="bg-white border border-[#E4E4E7] rounded-2xl p-4 shadow-sm">
+            <div className="h-3 w-14 bg-[#F4F4F5] rounded mb-3" />
+            {[0,1,2,3,4].map(i => (
+              <div key={i} className="flex items-center gap-2 mb-1.5">
+                <div className="w-2 h-2 rounded-full bg-[#F4F4F5]" />
+                <div className="h-3 w-20 bg-[#F4F4F5] rounded" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Calendar Page ────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
@@ -169,6 +244,7 @@ export default function CalendarPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForDate, setAddForDate] = useState<Date>(today);
   const [showUpload, setShowUpload] = useState(false);
+  const [visible, setVisible] = useState(false);
 
   // Load events from database + localStorage on mount
   useEffect(() => {
@@ -190,6 +266,8 @@ export default function CalendarPage() {
         setEvents(localEvents.length > 0 ? localEvents : SEED_EVENTS);
       } finally {
         setLoading(false);
+        // Trigger fade-in on next tick so the DOM has painted at opacity 0 first
+        requestAnimationFrame(() => setVisible(true));
       }
     }
     loadEvents();
@@ -297,8 +375,13 @@ export default function CalendarPage() {
     setShowAddModal(true);
   };
 
+  if (loading) return <CalendarSkeleton />;
+
   return (
-    <div className="max-w-5xl mx-auto py-8 px-0">
+    <div
+      className="max-w-5xl mx-auto py-8 px-0 transition-opacity duration-300"
+      style={{ opacity: visible ? 1 : 0 }}
+    >
       {/* Header */}
       <div className="flex items-center justify-between mb-8 px-1">
         <div>

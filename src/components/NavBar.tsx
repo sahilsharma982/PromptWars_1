@@ -8,7 +8,7 @@ const navLinks = [
   { href: '/calendar', label: 'Calendar' },
   { href: '/journal', label: 'Journal' },
   { href: '/companion', label: 'Companion' },
-  { href: '/hive', label: 'Hive' },
+  { href: '/integrations', label: 'Integrations' },
 ];
 
 export default function NavBar() {

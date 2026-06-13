@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Plus, MessageSquare, X } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { Plus, MessageSquare, X, Trash2 } from 'lucide-react';
 import {
   loadLocalConversations,
+  deleteLocalConversation,
   type StoredConversation,
 } from '@/lib/chatStorage';
 
@@ -47,11 +48,27 @@ function ConversationList({
   conversations,
   activeId,
   onSelect,
+  onDelete,
 }: {
   conversations: StoredConversation[];
   activeId: string | null;
   onSelect?: () => void;
+  onDelete?: (id: string) => void;
 }) {
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  const handleDelete = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (confirmingId === id) {
+      onDelete?.(id);
+      setConfirmingId(null);
+    } else {
+      setConfirmingId(id);
+      setTimeout(() => setConfirmingId(ci => ci === id ? null : ci), 2500);
+    }
+  };
+
   if (conversations.length === 0) {
     return (
       <div className="px-4 py-8 text-center">
@@ -67,21 +84,35 @@ function ConversationList({
       {conversations.map((conv) => {
         const isActive = activeId === conv.id;
         return (
-          <Link
-            key={conv.id}
-            href={`/companion/${conv.id}`}
-            onClick={onSelect}
-            className={`block px-3 py-2.5 rounded-xl text-left transition-all ${
-              isActive
-                ? 'bg-white border border-[#E4E4E7] shadow-sm'
-                : 'hover:bg-white/60 border border-transparent'
-            }`}
-          >
-            <p className={`text-[13px] font-medium truncate ${isActive ? 'text-[#27272A]' : 'text-[#3F3F46]'}`}>
-              {conv.title}
-            </p>
-            <p className="text-[11px] text-[#A1A1AA] mt-0.5">{formatRelative(conv.updated_at)}</p>
-          </Link>
+          <div key={conv.id} className="relative group">
+            <Link
+              href={`/companion/${conv.id}`}
+              onClick={onSelect}
+              className={`block px-3 py-2.5 pr-8 rounded-xl text-left transition-all ${
+                isActive
+                  ? 'bg-white border border-[#E4E4E7] shadow-sm'
+                  : 'hover:bg-white/60 border border-transparent'
+              }`}
+            >
+              <p className={`text-[13px] font-medium truncate ${isActive ? 'text-[#27272A]' : 'text-[#3F3F46]'}`}>
+                {conv.title}
+              </p>
+              <p className="text-[11px] text-[#A1A1AA] mt-0.5">{formatRelative(conv.updated_at)}</p>
+            </Link>
+            {/* Delete button with 2-step confirm */}
+            <button
+              onClick={(e) => handleDelete(e, conv.id)}
+              className={`absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-all ${
+                confirmingId === conv.id
+                  ? 'opacity-100 bg-red-50 text-red-500 border border-red-200'
+                  : 'opacity-0 group-hover:opacity-100 text-[#A1A1AA] hover:text-red-400 hover:bg-red-50'
+              }`}
+              title={confirmingId === conv.id ? 'Click again to confirm' : 'Delete conversation'}
+            >
+              <Trash2 className="w-3 h-3" />
+              {confirmingId === conv.id && <span>Sure?</span>}
+            </button>
+          </div>
         );
       })}
     </div>
@@ -92,10 +123,12 @@ function SidebarContent({
   conversations,
   activeId,
   onClose,
+  onDelete,
 }: {
   conversations: StoredConversation[];
   activeId: string | null;
   onClose?: () => void;
+  onDelete?: (id: string) => void;
 }) {
   return (
     <>
@@ -119,6 +152,7 @@ function SidebarContent({
           conversations={conversations}
           activeId={activeId}
           onSelect={onClose}
+          onDelete={onDelete}
         />
       </div>
     </>
@@ -127,6 +161,7 @@ function SidebarContent({
 
 export default function CompanionLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [conversations, setConversations] = useState<StoredConversation[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -167,6 +202,15 @@ export default function CompanionLayout({ children }: { children: React.ReactNod
     ? pathname.split('/companion/')[1]?.split('/')[0] ?? null
     : null;
 
+  const handleDelete = useCallback((id: string) => {
+    deleteLocalConversation(id);
+    setConversations(prev => prev.filter(c => c.id !== id));
+    // Navigate away if we just deleted the active conversation
+    if (id === activeId) {
+      router.push('/companion');
+    }
+  }, [activeId, router]);
+
   const ctx: CompanionContextValue = {
     conversations,
     activeId,
@@ -180,7 +224,7 @@ export default function CompanionLayout({ children }: { children: React.ReactNod
       <div className="max-w-6xl mx-auto flex gap-4 py-4 lg:py-6" style={{ height: 'calc(100vh - 3.5rem)' }}>
         {/* Desktop sidebar */}
         <aside className="hidden md:flex flex-col w-60 shrink-0 bg-[#F4F4F5]/50 border border-[#E4E4E7] rounded-2xl overflow-hidden">
-          <SidebarContent conversations={conversations} activeId={activeId} />
+          <SidebarContent conversations={conversations} activeId={activeId} onDelete={handleDelete} />
         </aside>
 
         {/* Mobile sidebar overlay */}
@@ -204,6 +248,7 @@ export default function CompanionLayout({ children }: { children: React.ReactNod
                 conversations={conversations}
                 activeId={activeId}
                 onClose={() => setSidebarOpen(false)}
+                onDelete={handleDelete}
               />
             </aside>
           </div>

@@ -5,6 +5,13 @@
   --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
 }
 
+/* ── Prevent scrollbar layout shift ─────────────────────────────────────────── */
+/* Always reserves scrollbar gutter space so page width never jumps on navigate */
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 /* Scrollbar hide utility */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
@@ -29,11 +36,16 @@ input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
 }
 
-/* Fade-in animation */
+/* ── Page entry animation ────────────────────────────────────────────────────── */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-in {
-  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Apply to every page's main content automatically */
+main > * {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
