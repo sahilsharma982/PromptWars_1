@@ -3,41 +3,39 @@ import { callModel, resolveTier, getMode } from '@/lib/modelRouter';
 import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
 
+const generateMock = vi.fn().mockResolvedValue({
+  text: '{"result": "gemini mock response"}',
+});
+
+const createMock = vi.fn().mockResolvedValue({
+  choices: [
+    {
+      message: {
+        content: '{"result": "openai mock response"}',
+      },
+    },
+  ],
+});
+
 vi.mock('@google/genai', () => {
-  const generateMock = vi.fn().mockResolvedValue({
-    text: '{"result": "gemini mock response"}',
-  });
   return {
-    GoogleGenAI: vi.fn().mockImplementation(() => {
-      return {
-        models: {
-          generateContent: generateMock,
-        },
+    GoogleGenAI: class {
+      models = {
+        generateContent: generateMock,
       };
-    }),
+    },
   };
 });
 
 vi.mock('openai', () => {
-  const createMock = vi.fn().mockResolvedValue({
-    choices: [
-      {
-        message: {
-          content: '{"result": "openai mock response"}',
-        },
-      },
-    ],
-  });
   return {
-    default: vi.fn().mockImplementation(() => {
-      return {
-        chat: {
-          completions: {
-            create: createMock,
-          },
+    default: class {
+      chat = {
+        completions: {
+          create: createMock,
         },
       };
-    }),
+    },
   };
 });
 

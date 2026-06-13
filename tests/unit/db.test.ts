@@ -9,14 +9,24 @@ import {
   buildStudentContext,
 } from '@/lib/db';
 
+// Chainable thenable query mock helper
+function createSupabaseMock(data: any = null, error: any = null) {
+  const query: any = {
+    insert: vi.fn(() => query),
+    upsert: vi.fn(() => query),
+    update: vi.fn(() => query),
+    delete: vi.fn(() => query),
+    select: vi.fn(() => query),
+    eq: vi.fn(() => query),
+    order: vi.fn(() => query),
+    limit: vi.fn(() => query),
+    single: vi.fn(() => query),
+    then: (resolve: any) => resolve({ data, error }),
+  };
+  return query;
+}
+
 const mockFrom = vi.fn();
-const mockInsert = vi.fn();
-const mockSelect = vi.fn();
-const mockSingle = vi.fn();
-const mockEq = vi.fn();
-const mockOrder = vi.fn();
-const mockLimit = vi.fn();
-const mockDelete = vi.fn();
 
 vi.mock('@/lib/supabaseClient', () => {
   return {
@@ -32,45 +42,7 @@ describe('Database Helpers', () => {
   beforeEach(() => {
     vi.resetModules();
     process.env = { ...originalEnv };
-
-    // Reset all mock chains
     mockFrom.mockReset();
-    mockInsert.mockReset();
-    mockSelect.mockReset();
-    mockSingle.mockReset();
-    mockEq.mockReset();
-    mockOrder.mockReset();
-    mockLimit.mockReset();
-    mockDelete.mockReset();
-
-    // Setup base chain mapping
-    mockFrom.mockReturnValue({
-      insert: mockInsert,
-      select: mockSelect,
-      delete: mockDelete,
-      update: vi.fn(),
-      upsert: vi.fn(),
-    });
-    mockInsert.mockReturnValue({
-      select: mockSelect,
-    });
-    mockSelect.mockReturnValue({
-      single: mockSingle,
-      eq: mockEq,
-      order: mockOrder,
-      limit: mockLimit,
-    });
-    mockEq.mockReturnValue({
-      single: mockSingle,
-      order: mockOrder,
-      limit: mockLimit,
-      eq: mockEq,
-    });
-    mockOrder.mockReturnValue({
-      order: mockOrder,
-      limit: mockLimit,
-    });
-    mockLimit.mockReturnValue(Promise.resolve({ data: [], error: null }));
   });
 
   afterEach(() => {
@@ -80,7 +52,6 @@ describe('Database Helpers', () => {
 
   describe('Zero-Config Demo Mode (Supabase not configured)', () => {
     beforeEach(() => {
-      // Empty Supabase URL signals "unconfigured"
       process.env.NEXT_PUBLIC_SUPABASE_URL = '';
     });
 
@@ -126,33 +97,33 @@ describe('Database Helpers', () => {
         strategies: ['breath'],
       };
 
-      const mockSingleResult = { data: { id: 'journal-1', ...entry }, error: null };
-      mockSelect.mockReturnValue({ single: mockSingle });
-      mockSingle.mockResolvedValue(mockSingleResult);
+      const mockQuery = createSupabaseMock({ id: 'journal-1', ...entry });
+      mockFrom.mockReturnValue(mockQuery);
 
       const result = await saveJournalEntry(entry);
 
       expect(mockFrom).toHaveBeenCalledWith('journal_entries');
-      expect(mockInsert).toHaveBeenCalledWith(entry);
+      expect(mockQuery.insert).toHaveBeenCalledWith(entry);
       expect(result).toEqual({ id: 'journal-1', ...entry });
     });
 
     it('should return empty list when getRecentJournalEntries is called but DB query fails', async () => {
-      mockLimit.mockResolvedValue({ data: null, error: { message: 'DB Error' } });
+      const mockQuery = createSupabaseMock(null, { message: 'DB Error' });
+      mockFrom.mockReturnValue(mockQuery);
 
       const result = await getRecentJournalEntries('test-user');
       expect(result).toEqual([]);
     });
 
     it('should delete calendar events successfully', async () => {
-      mockDelete.mockReturnValue({ eq: mockEq });
-      mockEq.mockResolvedValue({ error: null });
+      const mockQuery = createSupabaseMock({ success: true });
+      mockFrom.mockReturnValue(mockQuery);
 
       const ok = await deleteCalendarEvent('event-123');
       expect(ok).toBe(true);
       expect(mockFrom).toHaveBeenCalledWith('calendar_events');
-      expect(mockDelete).toHaveBeenCalled();
-      expect(mockEq).toHaveBeenCalledWith('id', 'event-123');
+      expect(mockQuery.delete).toHaveBeenCalled();
+      expect(mockQuery.eq).toHaveBeenCalledWith('id', 'event-123');
     });
   });
 
@@ -162,28 +133,23 @@ describe('Database Helpers', () => {
     });
 
     it('should compile correct student context structure', async () => {
-      // Setup mock queries for profile, journal, calendar, materials
-      mockSingle.mockResolvedValue({
-        data: { id: 'user-1', name: 'Sahil', target_exam: 'JEE', weaknesses: ['Maths'] },
-        error: null,
+      // Mock different tables dynamically
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'users') {
+          return createSupabaseMock({ id: 'user-1', name: 'Sahil', target_exam: 'JEE', weaknesses: ['Maths'] });
+        }
+        if (table === 'journal_entries') {
+          return createSupabaseMock([
+            { mood: 3, content: 'Tired', created_at: '2026-06-13T10:00:00Z' },
+          ]);
+        }
+        if (table === 'calendar_events') {
+          return createSupabaseMock([
+            { title: 'Physics exam', event_date: '2026-06-15', event_time: '10:00', type: 'exam', ai_scheduled: false },
+          ]);
+        }
+        return createSupabaseMock([]);
       });
-
-      // Journals mock resolver (7 limit)
-      mockLimit.mockResolvedValue({
-        data: [
-          { mood: 3, content: 'Tired', created_at: '2026-06-13T10:00:00Z' },
-        ],
-        error: null,
-      });
-
-      // Calendar mock resolver (getCalendarEvents)
-      // Since it retrieves all, it doesn't chain limit, it just resolves directly on select/eq/order
-      mockOrder.mockReturnValue(Promise.resolve({
-        data: [
-          { title: 'Physics exam', event_date: '2026-06-15', event_time: '10:00', type: 'exam', ai_scheduled: false },
-        ],
-        error: null,
-      }));
 
       const context = await buildStudentContext('user-1');
 
