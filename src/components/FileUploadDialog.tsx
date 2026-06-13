@@ -5,8 +5,17 @@ import { useDropzone } from 'react-dropzone';
 import { UploadCloud, FileText, Loader2, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+interface UploadData {
+  title: string;
+  events: Array<{
+    title: string;
+    date: Date;
+    type: string;
+  }>;
+}
+
 interface FileUploadProps {
-  onUploadSuccess: (data: any) => void;
+  onUploadSuccess: (data: UploadData) => void;
 }
 
 export default function FileUploadDialog({ onUploadSuccess }: FileUploadProps) {
