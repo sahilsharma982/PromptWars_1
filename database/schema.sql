@@ -142,3 +142,19 @@ CREATE POLICY "service_role_all" ON chat_messages
 --   NEXT_PUBLIC_SUPABASE_URL  = https://xxxx.supabase.co
 --   SUPABASE_SERVICE_ROLE_KEY = eyJ...  (Settings → API)
 -- ============================================================
+
+-- ── syllabus_trees ───────────────────────────────────────────
+-- One tree per user (upserted on save).
+CREATE TABLE IF NOT EXISTS syllabus_trees (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID        NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  tree        JSONB       NOT NULL DEFAULT '[]'::jsonb,
+  raw_text    TEXT        NOT NULL DEFAULT '',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE syllabus_trees ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all" ON syllabus_trees;
+CREATE POLICY "service_role_all" ON syllabus_trees FOR ALL USING (TRUE);
+GRANT ALL ON syllabus_trees TO service_role;

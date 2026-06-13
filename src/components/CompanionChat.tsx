@@ -479,9 +479,37 @@ export default function CompanionChat({ conversationId }: CompanionChatProps) {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto scrollbar-hide">
         {loadingHistory ? (
-          <div className="flex flex-col items-center justify-center h-full text-[#A1A1AA] text-sm gap-3">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            <span>Loading conversation…</span>
+          <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+            {/* Skeleton messages that mimic the real layout */}
+            {[
+              { isUser: false, widths: ['w-64', 'w-48'] },
+              { isUser: true,  widths: ['w-40'] },
+              { isUser: false, widths: ['w-72', 'w-56', 'w-32'] },
+            ].map((row, i) => (
+              <div
+                key={i}
+                className={`flex gap-3 animate-pulse ${row.isUser ? 'flex-row-reverse' : 'flex-row'}`}
+                style={{ animationDelay: `${i * 80}ms` }}
+              >
+                {!row.isUser && (
+                  <div className="w-8 h-8 shrink-0 rounded-full bg-[#E4E4E7] mt-0.5" />
+                )}
+                {row.isUser && (
+                  <div className="w-8 h-8 shrink-0 rounded-full bg-[#E4E4E7] mt-0.5" />
+                )}
+                <div className={`flex flex-col gap-2 ${row.isUser ? 'items-end' : 'items-start'}`}>
+                  {row.widths.map((w, j) => (
+                    <div
+                      key={j}
+                      className={`h-9 ${w} rounded-2xl ${
+                        row.isUser ? 'bg-[#D4D4D8] rounded-tr-sm' : 'bg-[#E4E4E7] rounded-tl-sm'
+                      }`}
+                    />
+                  ))}
+                  <div className="h-2 w-8 bg-[#F4F4F5] rounded mt-1" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : showWelcome ? (
           <WelcomeScreen onPrompt={sendMessage} />

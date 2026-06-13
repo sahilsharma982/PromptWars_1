@@ -1,13 +1,18 @@
+/**
+ * /api/journal — GET handler for the dashboard.
+ * Returns the last 50 journal entries for the demo user.
+ * Degrades gracefully when Supabase is unconfigured.
+ */
+
 import { NextResponse } from 'next/server';
 import { getJournalEntries, DEMO_USER_ID } from '@/lib/db';
 
-// GET /api/journal — list journal entries
 export async function GET() {
   try {
-    const entries = await getJournalEntries(DEMO_USER_ID);
-    return NextResponse.json({ entries });
-  } catch (error: any) {
-    console.error('[Journal API] GET error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const entries = await getJournalEntries(DEMO_USER_ID, 50);
+    return NextResponse.json({ entries, count: entries.length });
+  } catch (err: any) {
+    console.error('[journal] GET error:', err);
+    return NextResponse.json({ entries: [], count: 0, error: err.message });
   }
 }
