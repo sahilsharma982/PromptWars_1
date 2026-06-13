@@ -35,6 +35,6 @@ test.describe('Integrations Page E2E', () => {
     // Switch to Activity tab
     await page.click('role=button[name="Activity"]');
     await expect(page.locator('text=Activity Rings')).toBeVisible();
-    await expect(page.locator('text=Heart Rate')).toBeVisible();
+    await expect(page.locator('p:text-is("Heart Rate")').last()).toBeVisible();
   });
 });

@@ -114,8 +114,8 @@ test.describe('Companion Chat E2E', () => {
     const replyText = page.locator('text=Hello! This is a response from the Academic and Wellness agents.');
     await expect(replyText).toBeVisible();
 
-    // Verify agent visualizations are rendered in the message bubbles
-    await expect(page.locator('text=Academic Agent')).toBeVisible();
-    await expect(page.locator('text=Wellness Agent')).toBeVisible();
+    // Verify agent visualizations are rendered in the message bubbles exactly using text-is
+    await expect(page.locator('span:text-is("Academic Agent")')).toBeVisible();
+    await expect(page.locator('span:text-is("Wellness Agent")')).toBeVisible();
   });
 });
