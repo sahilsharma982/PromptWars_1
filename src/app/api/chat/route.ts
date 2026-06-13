@@ -78,8 +78,9 @@ For "generate_quiz", action_payload must be: { "topic": "...", "question": "..."
     }
 
     return NextResponse.json(uiResponse);
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Internal Server Error';
     console.error('Error in chat route:', error);
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

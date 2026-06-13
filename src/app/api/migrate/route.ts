@@ -28,8 +28,9 @@ export async function GET() {
   let schema: string;
   try {
     schema = readFileSync(join(process.cwd(), 'database', 'schema.sql'), 'utf8');
-  } catch (e: any) {
-    return NextResponse.json({ error: `Could not read schema.sql: ${e.message}` }, { status: 500 });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: `Could not read schema.sql: ${message}` }, { status: 500 });
   }
 
   // Attempt via Supabase Management API
@@ -62,11 +63,12 @@ export async function GET() {
       message: `Management API returned ${res.status}. The service_role key may not have management-API access — please run database/schema.sql manually in Supabase Dashboard → SQL Editor.`,
       error: errText.slice(0, 400),
     }, { status: 400 });
-  } catch (err: any) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({
       success: false,
       message: 'Network error calling Supabase Management API.',
-      error: err.message,
+      error: message,
     }, { status: 500 });
   }
 }

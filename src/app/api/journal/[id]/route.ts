@@ -12,8 +12,9 @@ export async function GET(_req: Request, context: RouteContext) {
       return NextResponse.json({ entry: null }, { status: 404 });
     }
     return NextResponse.json({ entry });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('[Journal API] GET [id] error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
