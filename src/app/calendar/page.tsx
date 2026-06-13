@@ -15,6 +15,7 @@ import {
   mergeCalendarEvents,
   isLocalOnlyId,
 } from '@/lib/calendarStorage';
+import { type CalendarEvent } from '@/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -54,8 +55,8 @@ const SEED_EVENTS: CalEvent[] = [
 ];
 
 // Helper to map DB event to local CalEvent
-const mapDbEventToCalEvent = (dbEvent: any): CalEvent => ({
-  id: dbEvent.id,
+const mapDbEventToCalEvent = (dbEvent: CalendarEvent): CalEvent => ({
+  id: dbEvent.id ?? `temp-${Date.now()}`,
   title: dbEvent.title,
   date: dbEvent.event_date,
   time: dbEvent.event_time ? dbEvent.event_time.slice(0, 5) : undefined, // format 'HH:MM:SS' -> 'HH:MM'
@@ -355,8 +356,15 @@ export default function CalendarPage() {
     }
   };
 
-  const handleUpload = (data: any) => {
-    const newEvents: CalEvent[] = (data.events || []).map((e: any, i: number) => ({
+  interface UploadData {
+    events?: Array<{
+      title: string;
+      date: string;
+    }>;
+  }
+
+  const handleUpload = (data: UploadData) => {
+    const newEvents: CalEvent[] = (data.events || []).map((e, i: number) => ({
       id: `local-upload-${Date.now() + i}`,
       title: e.title,
       date: fmt(new Date(e.date)),
