@@ -101,6 +101,42 @@ CREATE POLICY "service_role_all" ON calendar_events
 CREATE POLICY "service_role_all" ON uploaded_materials
   FOR ALL USING (TRUE);
 
+-- ── chat_conversations ───────────────────────────────────────
+CREATE TABLE IF NOT EXISTS chat_conversations (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title       TEXT        NOT NULL DEFAULT 'New conversation',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS chat_conversations_user_updated
+  ON chat_conversations (user_id, updated_at DESC);
+
+-- ── chat_messages ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id  UUID        NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+  role             TEXT        NOT NULL CHECK (role IN ('user', 'assistant')),
+  content          TEXT        NOT NULL,
+  type             TEXT        NOT NULL DEFAULT 'text'
+                   CHECK (type IN ('text', 'quiz', 'calendar_event', 'insight')),
+  metadata         JSONB,
+  agents           JSONB,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS chat_messages_conversation_created
+  ON chat_messages (conversation_id, created_at ASC);
+
+ALTER TABLE chat_conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_messages      ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "service_role_all" ON chat_conversations
+  FOR ALL USING (TRUE);
+CREATE POLICY "service_role_all" ON chat_messages
+  FOR ALL USING (TRUE);
+
 -- ============================================================
 -- Done! Add these to your .env and Vercel Environment Variables:
 --   NEXT_PUBLIC_SUPABASE_URL  = https://xxxx.supabase.co

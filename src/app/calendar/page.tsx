@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   format, addMonths, subMonths, startOfMonth, endOfMonth,
@@ -9,13 +9,19 @@ import {
 } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus, X, Clock, Sparkles, BookOpen, AlertCircle } from 'lucide-react';
 import FileUploadDialog from '@/components/FileUploadDialog';
+import {
+  loadLocalCalendarEvents,
+  saveLocalCalendarEvents,
+  mergeCalendarEvents,
+  isLocalOnlyId,
+} from '@/lib/calendarStorage';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type EventType = 'study' | 'exam' | 'wellness' | 'deadline' | 'ai';
 
 interface CalEvent {
-  id: number;
+  id: string | number;
   title: string;
   date: string;       // ISO YYYY-MM-DD
   time?: string;      // HH:MM optional
@@ -34,18 +40,29 @@ const TYPE_STYLES: Record<EventType, { dot: string; pill: string; text: string }
   ai:       { dot: 'bg-violet-400', pill: 'bg-violet-50 border-violet-100', text: 'text-violet-700' },
 };
 
-// ── Seed Events ───────────────────────────────────────────────────────────────
+// ── Seed Events (Fallback in case DB is empty/not configured) ─────────────────
 
 const today = new Date();
 const fmt = (d: Date) => format(d, 'yyyy-MM-dd');
 
 const SEED_EVENTS: CalEvent[] = [
-  { id: 1, title: 'Physics Mock Test',      date: fmt(addMonths(today, 0)), time: '10:00', type: 'exam' },
-  { id: 2, title: 'Thermodynamics Revision',date: fmt(today),               time: '09:00', type: 'study' },
-  { id: 3, title: 'Morning Walk',            date: fmt(today),               time: '07:00', type: 'wellness' },
-  { id: 4, title: 'JEE Paper 2024 Practice',date: fmt(addMonths(today, 0)), time: '14:00', type: 'study' },
-  { id: 5, title: 'Assignment Deadline',     date: fmt(addMonths(today, 0)), time: '23:59', type: 'deadline' },
+  { id: 'seed-1', title: 'Physics Mock Test',      date: fmt(addMonths(today, 0)), time: '10:00', type: 'exam' },
+  { id: 'seed-2', title: 'Thermodynamics Revision',date: fmt(today),               time: '09:00', type: 'study' },
+  { id: 'seed-3', title: 'Morning Walk',            date: fmt(today),               time: '07:00', type: 'wellness' },
+  { id: 'seed-4', title: 'JEE Paper 2024 Practice',date: fmt(addMonths(today, 0)), time: '14:00', type: 'study' },
+  { id: 'seed-5', title: 'Assignment Deadline',     date: fmt(addMonths(today, 0)), time: '23:59', type: 'deadline' },
 ];
+
+// Helper to map DB event to local CalEvent
+const mapDbEventToCalEvent = (dbEvent: any): CalEvent => ({
+  id: dbEvent.id,
+  title: dbEvent.title,
+  date: dbEvent.event_date,
+  time: dbEvent.event_time ? dbEvent.event_time.slice(0, 5) : undefined, // format 'HH:MM:SS' -> 'HH:MM'
+  type: dbEvent.type,
+  ai: dbEvent.ai_scheduled,
+  note: dbEvent.note || undefined,
+});
 
 // ── Add-event modal ───────────────────────────────────────────────────────────
 
@@ -147,10 +164,43 @@ function AddEventModal({
 export default function CalendarPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<Date>(today);
-  const [events, setEvents] = useState<CalEvent[]>(SEED_EVENTS);
+  const [events, setEvents] = useState<CalEvent[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForDate, setAddForDate] = useState<Date>(today);
   const [showUpload, setShowUpload] = useState(false);
+
+  // Load events from database + localStorage on mount
+  useEffect(() => {
+    async function loadEvents() {
+      const localEvents = loadLocalCalendarEvents();
+      try {
+        const res = await fetch('/api/calendar');
+        if (res.ok) {
+          const data = await res.json();
+          const dbEvents = (data.events || []).map(mapDbEventToCalEvent);
+          const merged = mergeCalendarEvents(dbEvents, localEvents);
+          setEvents(merged.length > 0 ? merged : SEED_EVENTS);
+          if (merged.length > 0) saveLocalCalendarEvents(merged);
+        } else {
+          setEvents(localEvents.length > 0 ? localEvents : SEED_EVENTS);
+        }
+      } catch (err) {
+        console.error('[Calendar] Failed to load events from API:', err);
+        setEvents(localEvents.length > 0 ? localEvents : SEED_EVENTS);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadEvents();
+  }, []);
+
+  // Keep localStorage in sync whenever events change
+  useEffect(() => {
+    if (!loading && events.length > 0) {
+      saveLocalCalendarEvents(events);
+    }
+  }, [events, loading]);
 
   // Build calendar grid (Sun → Sat, 6 weeks)
   const calDays = useMemo(() => {
@@ -164,21 +214,82 @@ export default function CalendarPage() {
     [events, selectedDay],
   );
 
-  const addEvent = (event: Omit<CalEvent, 'id'>) => {
-    setEvents(prev => [...prev, { ...event, id: Date.now() }]);
+  const addEvent = async (event: Omit<CalEvent, 'id'>) => {
+    try {
+      const res = await fetch('/api/calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: event.title,
+          event_date: event.date,
+          event_time: event.time,
+          type: event.type,
+          ai_scheduled: event.ai ?? false,
+          note: event.note,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.event) {
+          const saved = mapDbEventToCalEvent(data.event);
+          setEvents(prev => {
+            const next = [...prev, saved];
+            saveLocalCalendarEvents(next);
+            return next;
+          });
+          return;
+        }
+      }
+      // If server returned non-persisted fallback or error, add locally
+      setEvents(prev => {
+        const next = [...prev, { ...event, id: `local-${Date.now()}` }];
+        saveLocalCalendarEvents(next);
+        return next;
+      });
+    } catch (err) {
+      console.error('[Calendar] Failed to save event to API:', err);
+      setEvents(prev => {
+        const next = [...prev, { ...event, id: `local-${Date.now()}` }];
+        saveLocalCalendarEvents(next);
+        return next;
+      });
+    }
   };
 
-  const removeEvent = (id: number) => setEvents(prev => prev.filter(e => e.id !== id));
+  const removeEvent = async (id: string | number) => {
+    setEvents(prev => {
+      const next = prev.filter(e => e.id !== id);
+      saveLocalCalendarEvents(next);
+      return next;
+    });
+
+    if (typeof id === 'string' && !isLocalOnlyId(id)) {
+      try {
+        const res = await fetch(`/api/calendar?id=${id}`, {
+          method: 'DELETE',
+        });
+        if (!res.ok) {
+          console.error('[Calendar] API failed to delete event');
+        }
+      } catch (err) {
+        console.error('[Calendar] Failed to delete event via API:', err);
+      }
+    }
+  };
 
   const handleUpload = (data: any) => {
     const newEvents: CalEvent[] = (data.events || []).map((e: any, i: number) => ({
-      id: Date.now() + i,
+      id: `local-upload-${Date.now() + i}`,
       title: e.title,
       date: fmt(new Date(e.date)),
       type: 'ai' as EventType,
       ai: true,
     }));
-    setEvents(prev => [...prev, ...newEvents]);
+    setEvents(prev => {
+      const next = [...prev, ...newEvents];
+      saveLocalCalendarEvents(next);
+      return next;
+    });
   };
 
   const openAddFor = (date: Date) => {

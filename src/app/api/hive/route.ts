@@ -12,6 +12,7 @@
 
 import { NextResponse } from 'next/server';
 import { callModel, resolveTier, getMode, tierLabel, type Tier } from '@/lib/modelRouter';
+import { buildStudentContext, createCalendarEvent, DEMO_USER_ID, type StudentContext } from '@/lib/db';
 
 // ── Agent Definitions ─────────────────────────────────────────────────────────
 
@@ -25,23 +26,6 @@ const AGENT_DEFS = {
 
 type AgentKey = keyof typeof AGENT_DEFS;
 
-// ── Student Context Engine ────────────────────────────────────────────────────
-// In production this is fetched from Supabase per authenticated user.
-
-const STUDENT_CONTEXT = {
-  profile: { name: 'Sahil', target_exam: 'JEE Advanced 2027', weaknesses: ['Thermodynamics', 'Organic Chemistry'] },
-  mood_history: [
-    { date: '2026-06-10', score: 4, note: 'Feeling very stressed, mock results were bad.' },
-    { date: '2026-06-11', score: 5, note: 'A bit better after the break.' },
-    { date: '2026-06-12', score: 6, note: 'Focused session on mechanics.' },
-  ],
-  upcoming_events: [
-    { title: 'Physics Mock Test', date: '2026-06-14' },
-    { title: 'Math Practice',     date: '2026-06-13' },
-  ],
-  uploaded_materials: ['Physics Ch4: Thermodynamics', 'JEE 2024 Previous Papers'],
-};
-
 // ── Step 1: Orchestrator (heavy tier) ─────────────────────────────────────────
 
 interface OrchestratorPlan {
@@ -50,7 +34,7 @@ interface OrchestratorPlan {
   reasoning: string;
 }
 
-async function runOrchestrator(message: string): Promise<OrchestratorPlan> {
+async function runOrchestrator(message: string, context: StudentContext): Promise<OrchestratorPlan> {
   const prompt = `
 You are the master orchestrator for a student well-being AI system.
 
@@ -59,9 +43,9 @@ Analyse the student's message and decide:
 2. agents — which 1-3 specialist agents to invoke from this list: academic, wellness, scheduler, motivator, analyst
 
 Student context:
-- Target exam: ${STUDENT_CONTEXT.profile.target_exam}
-- Weaknesses: ${STUDENT_CONTEXT.profile.weaknesses.join(', ')}
-- Recent mood: score ${STUDENT_CONTEXT.mood_history.at(-1)?.score}/10
+- Target exam: ${context.profile.target_exam}
+- Weaknesses: ${context.profile.weaknesses.join(', ')}
+- Recent mood: score ${context.mood_history.at(-1)?.score ?? 'unknown'}/10
 
 Student message: "${message}"
 
@@ -98,9 +82,9 @@ interface SpecialistResult {
   action_payload: Record<string, any>;
 }
 
-async function runSpecialist(agentKey: AgentKey, message: string, tier: Tier): Promise<SpecialistResult> {
+async function runSpecialist(agentKey: AgentKey, message: string, tier: Tier, context: StudentContext): Promise<SpecialistResult> {
   const agent = AGENT_DEFS[agentKey];
-  const contextStr = JSON.stringify(STUDENT_CONTEXT, null, 2);
+  const contextStr = JSON.stringify(context, null, 2);
 
   const prompt = `
 You are the ${agent.name}.
@@ -164,13 +148,16 @@ export async function POST(req: Request) {
 
     const mode = getMode();
 
+    // Fetch live student context from the database (falls back to mock if not configured)
+    const context = await buildStudentContext(DEMO_USER_ID);
+
     // 1. Orchestrate
-    const plan = await runOrchestrator(message);
+    const plan = await runOrchestrator(message, context);
     const tier = resolveTier(plan.complexity);
 
     // 2. Specialists in parallel
     const specialistResults = await Promise.all(
-      plan.agents.map(key => runSpecialist(key, message, tier))
+      plan.agents.map(key => runSpecialist(key, message, tier, context))
     );
 
     // 3. Synthesize
@@ -200,6 +187,19 @@ export async function POST(req: Request) {
     if (primaryAction?.action === 'schedule_event') {
       response.type = 'calendar_event';
       response.metadata = primaryAction.action_payload;
+
+      const payload = primaryAction.action_payload;
+      if (payload?.title && payload?.date) {
+        await createCalendarEvent({
+          user_id: DEMO_USER_ID,
+          title: String(payload.title),
+          event_date: String(payload.date),
+          event_time: payload.time ? String(payload.time) : undefined,
+          type: 'study',
+          ai_scheduled: true,
+          note: payload.duration_hours ? `${payload.duration_hours}h session` : undefined,
+        });
+      }
     } else if (primaryAction?.action === 'generate_quiz') {
       response.type = 'quiz';
       response.metadata = primaryAction.action_payload;

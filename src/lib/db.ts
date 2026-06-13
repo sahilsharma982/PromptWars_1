@@ -54,6 +54,27 @@ export interface UserProfile {
   weaknesses: string[];
 }
 
+export interface ChatConversation {
+  id: string;
+  user_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type MessageType = 'text' | 'quiz' | 'calendar_event' | 'insight';
+
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  type: MessageType;
+  metadata?: Record<string, unknown> | null;
+  agents?: { key: string; name: string; emoji: string; summary: string }[];
+  created_at: string;
+}
+
 // ── Flag: is Supabase configured? ─────────────────────────────────────────────
 
 function isConfigured(): boolean {
@@ -81,6 +102,32 @@ export async function getRecentJournalEntries(userId: string, limit = 7): Promis
     .limit(limit);
   if (error) { console.error('[db] getRecentJournalEntries:', error.message); return []; }
   return data ?? [];
+}
+
+export async function getJournalEntries(userId: string, limit = 50): Promise<JournalEntry[]> {
+  if (!isConfigured()) return [];
+  const db = getAdminClient();
+  const { data, error } = await db
+    .from('journal_entries')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) { console.error('[db] getJournalEntries:', error.message); return []; }
+  return data ?? [];
+}
+
+export async function getJournalEntry(userId: string, id: string): Promise<JournalEntry | null> {
+  if (!isConfigured()) return null;
+  const db = getAdminClient();
+  const { data, error } = await db
+    .from('journal_entries')
+    .select('*')
+    .eq('id', id)
+    .eq('user_id', userId)
+    .single();
+  if (error) { console.error('[db] getJournalEntry:', error.message); return null; }
+  return data;
 }
 
 // ── Calendar Events ───────────────────────────────────────────────────────────
@@ -112,6 +159,104 @@ export async function deleteCalendarEvent(id: string): Promise<boolean> {
   const { error } = await db.from('calendar_events').delete().eq('id', id);
   if (error) { console.error('[db] deleteCalendarEvent:', error.message); return false; }
   return true;
+}
+
+// ── Chat Conversations ────────────────────────────────────────────────────────
+
+export async function getConversations(userId: string, limit = 30): Promise<ChatConversation[]> {
+  if (!isConfigured()) return [];
+  const db = getAdminClient();
+  const { data, error } = await db
+    .from('chat_conversations')
+    .select('*')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false })
+    .limit(limit);
+  if (error) { console.error('[db] getConversations:', error.message); return []; }
+  return data ?? [];
+}
+
+export async function getConversation(conversationId: string, userId: string): Promise<ChatConversation | null> {
+  if (!isConfigured()) return null;
+  const db = getAdminClient();
+  const { data, error } = await db
+    .from('chat_conversations')
+    .select('*')
+    .eq('id', conversationId)
+    .eq('user_id', userId)
+    .single();
+  if (error) { console.error('[db] getConversation:', error.message); return null; }
+  return data;
+}
+
+export async function createConversation(
+  userId: string,
+  title = 'New conversation',
+  id?: string,
+): Promise<ChatConversation | null> {
+  if (!isConfigured()) return null;
+  const db = getAdminClient();
+  const row: Record<string, string> = { user_id: userId, title };
+  if (id) row.id = id;
+  const { data, error } = await db.from('chat_conversations').insert(row).select().single();
+  if (error) { console.error('[db] createConversation:', error.message); return null; }
+  return data;
+}
+
+export async function updateConversationTitle(
+  conversationId: string,
+  userId: string,
+  title: string,
+): Promise<boolean> {
+  if (!isConfigured()) return false;
+  const db = getAdminClient();
+  const { error } = await db
+    .from('chat_conversations')
+    .update({ title, updated_at: new Date().toISOString() })
+    .eq('id', conversationId)
+    .eq('user_id', userId);
+  if (error) { console.error('[db] updateConversationTitle:', error.message); return false; }
+  return true;
+}
+
+export async function touchConversation(conversationId: string): Promise<void> {
+  if (!isConfigured()) return;
+  const db = getAdminClient();
+  await db
+    .from('chat_conversations')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', conversationId);
+}
+
+export async function getMessages(conversationId: string): Promise<ChatMessage[]> {
+  if (!isConfigured()) return [];
+  const db = getAdminClient();
+  const { data, error } = await db
+    .from('chat_messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true });
+  if (error) { console.error('[db] getMessages:', error.message); return []; }
+  return data ?? [];
+}
+
+export async function saveMessage(
+  msg: Omit<ChatMessage, 'id' | 'created_at'> & { id?: string },
+): Promise<ChatMessage | null> {
+  if (!isConfigured()) return null;
+  const db = getAdminClient();
+  const row: Record<string, unknown> = {
+    conversation_id: msg.conversation_id,
+    role: msg.role,
+    content: msg.content,
+    type: msg.type,
+    metadata: msg.metadata ?? null,
+    agents: msg.agents ?? null,
+  };
+  if (msg.id) row.id = msg.id;
+  const { data, error } = await db.from('chat_messages').insert(row).select().single();
+  if (error) { console.error('[db] saveMessage:', error.message); return null; }
+  return data;
 }
 
 // ── Uploaded Materials ────────────────────────────────────────────────────────
