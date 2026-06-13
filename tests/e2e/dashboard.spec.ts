@@ -1,6 +1,17 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Dashboard & Navigation', () => {
+  test.beforeEach(async ({ page }) => {
+    // Mock the journal API endpoint so the dashboard loads instantly out of its skeleton state
+    await page.route('**/api/journal', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ entries: [] }),
+      });
+    });
+  });
+
   test('should load the dashboard and verify key elements', async ({ page }) => {
     // Start on dashboard page
     await page.goto('/dashboard');
@@ -22,15 +33,15 @@ test.describe('Dashboard & Navigation', () => {
     await page.goto('/dashboard');
 
     // Go to Syllabus page via Navbar link click
-    await page.click('role=link[name="Syllabus"]');
+    await page.click('a:has-text("Syllabus")');
     await expect(page).toHaveURL(/\/syllabus/);
 
     // Go to Companion page
-    await page.click('role=link[name="Companion"]');
+    await page.click('a:has-text("Companion")');
     await expect(page).toHaveURL(/\/companion/);
 
     // Go to Calendar page
-    await page.click('role=link[name="Calendar"]');
+    await page.click('a:has-text("Calendar")');
     await expect(page).toHaveURL(/\/calendar/);
   });
 });

@@ -71,8 +71,8 @@ test.describe('Syllabus Organizer E2E', () => {
     const unitNode = page.locator('text=Mechanics Unit');
     await expect(unitNode).toBeVisible();
 
-    // Check estimated hours render
-    const hoursBadge = page.locator('text=60h total');
+    // Check estimated hours render (value is "60h", labeled as "Est. hours")
+    const hoursBadge = page.locator('text=60h');
     await expect(hoursBadge).toBeVisible();
   });
 });
