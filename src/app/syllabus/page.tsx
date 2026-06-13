@@ -7,9 +7,9 @@ import {
   ChevronRight, ChevronDown, BookOpen, Layers,
   Lightbulb, Minus, Upload, Sparkles, RefreshCw, Trash2,
   Clock, CheckCircle2, Copy, Check, BookMarked, Cloud, CloudOff,
-  Calendar, ArrowRight, X, CalendarCheck,
+  Calendar, ArrowRight, X, CalendarCheck, GraduationCap,
+  Zap, Target, FileText, BarChart3,
 } from 'lucide-react';
-
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,199 +24,252 @@ interface SyllabusNode {
   children?: SyllabusNode[];
 }
 
-// ── Style maps ────────────────────────────────────────────────────────────────
-
-// ── Style maps (with safe fallback for unknown AI-generated types) ────────────
+// ── Safe icon/color helpers ───────────────────────────────────────────────────
 
 const VALID_TYPES = new Set(['subject', 'unit', 'chapter', 'topic', 'subtopic'] as const);
 
-const TYPE_ICON_MAP: Record<string, React.ElementType> = {
-  subject:  BookMarked,
-  unit:     Layers,
-  chapter:  BookOpen,
-  topic:    Lightbulb,
-  subtopic: Minus,
-  // common AI aliases
-  module:   Layers,
-  section:  BookOpen,
-  lesson:   Lightbulb,
+const ICON_MAP: Record<string, React.ElementType> = {
+  subject: BookMarked, unit: Layers, chapter: BookOpen,
+  topic: Lightbulb, subtopic: Minus,
+  module: Layers, section: BookOpen, lesson: Lightbulb,
 };
-function getNodeIcon(type: string): React.ElementType {
-  return TYPE_ICON_MAP[type] ?? Minus;
-}
+const icon = (t: string) => ICON_MAP[t] ?? Minus;
 
-const TYPE_COLOR: Record<string, string> = {
-  subject:  '#D97757', unit: '#7C3AED', chapter: '#1D4ED8',
-  topic:    '#0F766E', subtopic: '#71717A',
-};
-function getNodeColor(type: string): string {
-  return TYPE_COLOR[type] ?? '#A1A1AA';
-}
+// Rotating palette for subjects — each subject gets a distinct color
+const SUBJECT_PALETTE = [
+  { text: '#B45309', bg: '#FFF7ED', border: '#FDE68A', accent: '#F59E0B' },
+  { text: '#6D28D9', bg: '#F5F3FF', border: '#DDD6FE', accent: '#8B5CF6' },
+  { text: '#0369A1', bg: '#EFF6FF', border: '#BAE6FD', accent: '#0EA5E9' },
+  { text: '#047857', bg: '#ECFDF5', border: '#A7F3D0', accent: '#10B981' },
+  { text: '#BE185D', bg: '#FDF2F8', border: '#FBCFE8', accent: '#EC4899' },
+  { text: '#9A3412', bg: '#FFF7ED', border: '#FDBA74', accent: '#F97316' },
+];
 
-const TYPE_BG: Record<string, string> = {
-  subject:  '#FFF7ED', unit: '#F5F3FF', chapter: '#EFF6FF',
-  topic:    '#F0FDFA', subtopic: 'transparent',
-};
-function getNodeBg(type: string): string {
-  return TYPE_BG[type] ?? 'transparent';
-}
-
-const WEIGHT_CONFIG = {
-  high:   { color: '#EF4444', bg: '#FEF2F2', label: '★ High'  },
-  medium: { color: '#F59E0B', bg: '#FFFBEB', label: '◆ Med'   },
-  low:    { color: '#22C55E', bg: '#F0FDF4', label: '◇ Low'   },
-};
-const DIFF_CONFIG = {
-  easy:   { color: '#22C55E', label: 'Easy'   },
-  medium: { color: '#F59E0B', label: 'Medium' },
-  hard:   { color: '#EF4444', label: 'Hard'   },
+const TYPE_STYLE: Record<string, { text: string; bg: string }> = {
+  unit:     { text: '#6D28D9', bg: '#F5F3FF' },
+  chapter:  { text: '#0369A1', bg: '#EFF6FF' },
+  topic:    { text: '#047857', bg: '#ECFDF5' },
+  subtopic: { text: '#71717A', bg: 'transparent' },
 };
 
+const WEIGHT_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+  high:   { label: 'High',   color: '#DC2626', bg: '#FEF2F2' },
+  medium: { label: 'Medium', color: '#D97706', bg: '#FFFBEB' },
+  low:    { label: 'Low',    color: '#16A34A', bg: '#F0FDF4' },
+};
 
-// ── localStorage helpers (L1 cache — instant restore) ────────────────────────
+const DIFF_DOT: Record<string, string> = {
+  easy: '#22C55E', medium: '#F59E0B', hard: '#EF4444',
+};
 
-const LS_KEY = 'mindspace_syllabus_v1';
-function lsLoad(): { tree: SyllabusNode[]; raw: string } | null {
-  if (typeof window === 'undefined') return null;
-  try { return JSON.parse(localStorage.getItem(LS_KEY) ?? 'null'); } catch { return null; }
-}
-function lsSave(tree: SyllabusNode[], raw: string) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify({ tree, raw })); } catch {}
-}
-function lsClear() { try { localStorage.removeItem(LS_KEY); } catch {} }
+// ── Sanitisation ──────────────────────────────────────────────────────────────
 
-// ── Sanitize tree from AI (normalise types, ensure unique IDs) ────────────────
-
-let _idSeq = 0;
-function sanitizeNode(n: any, depth = 0): SyllabusNode {
-  const type = VALID_TYPES.has(n.type) ? n.type as SyllabusNode['type'] :
-    depth === 0 ? 'subject' :
-    depth === 1 ? 'unit' :
-    depth === 2 ? 'chapter' : 'topic';
-
+let _seq = 0;
+function sanitize(n: any, depth = 0): SyllabusNode {
+  const type = VALID_TYPES.has(n.type) ? n.type as SyllabusNode['type']
+    : depth === 0 ? 'subject' : depth === 1 ? 'unit' : depth === 2 ? 'chapter' : 'topic';
+  // Subjects are containers — don't show weight/difficulty on them
+  const isContainer = type === 'subject';
   return {
-    id:            n.id && typeof n.id === 'string' ? n.id : `node-${++_idSeq}`,
-    name:          n.name ?? 'Untitled',
+    id:             n.id && typeof n.id === 'string' ? n.id : `n-${++_seq}`,
+    name:           n.name ?? 'Untitled',
     type,
-    description:   n.description,
-    weight:        ['high','medium','low'].includes(n.weight)         ? n.weight    : undefined,
-    difficulty:    ['easy','medium','hard'].includes(n.difficulty)    ? n.difficulty : undefined,
-    estimatedHours: typeof n.estimatedHours === 'number' ? n.estimatedHours : undefined,
-    children:      Array.isArray(n.children) && n.children.length
-      ? n.children.map((c: any) => sanitizeNode(c, depth + 1))
-      : undefined,
+    description:    typeof n.description === 'string' ? n.description : undefined,
+    weight:         !isContainer && ['high','medium','low'].includes(n.weight) ? n.weight : undefined,
+    difficulty:     !isContainer && ['easy','medium','hard'].includes(n.difficulty) ? n.difficulty : undefined,
+    estimatedHours: typeof n.estimatedHours === 'number' && n.estimatedHours > 0 ? n.estimatedHours : undefined,
+    children:       Array.isArray(n.children) && n.children.length
+      ? n.children.map((c: any) => sanitize(c, depth + 1)) : undefined,
   };
 }
 function sanitizeTree(raw: any[]): SyllabusNode[] {
-  _idSeq = 0;
-  // De-duplicate IDs by regenerating them if any clash
+  _seq = 0;
   const seen = new Set<string>();
   function dedup(nodes: SyllabusNode[]): SyllabusNode[] {
     return nodes.map(n => {
-      if (seen.has(n.id)) n = { ...n, id: `node-${++_idSeq}` };
+      if (seen.has(n.id)) n = { ...n, id: `n-${++_seq}` };
       seen.add(n.id);
       return { ...n, children: n.children ? dedup(n.children) : undefined };
     });
   }
-  return dedup(raw.map(n => sanitizeNode(n, 0)));
+  return dedup(raw.map(n => sanitize(n, 0)));
 }
 
-// ── Tree helpers ──────────────────────────────────────────────────────────────
+// ── Persistence ───────────────────────────────────────────────────────────────
+
+const LS = 'mindspace_syllabus_v1';
+const lsLoad = (): { tree: SyllabusNode[]; raw: string } | null => {
+  if (typeof window === 'undefined') return null;
+  try { return JSON.parse(localStorage.getItem(LS) ?? 'null'); } catch { return null; }
+};
+const lsSave = (tree: SyllabusNode[], raw: string) => {
+  try { localStorage.setItem(LS, JSON.stringify({ tree, raw })); } catch {}
+};
+const lsClear = () => { try { localStorage.removeItem(LS); } catch {} };
+
+// ── Tree math ─────────────────────────────────────────────────────────────────
 
 function sumHours(nodes: SyllabusNode[]): number {
   return nodes.reduce((a, n) => a + (n.estimatedHours ?? 0) + (n.children ? sumHours(n.children) : 0), 0);
 }
-function countLeaves(nodes: SyllabusNode[]): number {
-  return nodes.reduce((a, n) => a + (!n.children?.length ? 1 : countLeaves(n.children!)), 0);
+function countNodes(nodes: SyllabusNode[], type?: string): number {
+  return nodes.reduce((a, n) => {
+    const match = !type || n.type === type ? 1 : 0;
+    return a + match + (n.children ? countNodes(n.children, type) : 0);
+  }, 0);
 }
 
+// ── Tree Node ─────────────────────────────────────────────────────────────────
 
-// ── Tree node component ────────────────────────────────────────────────────────
-
-function TreeNode({ node, depth = 0, defaultOpen }: {
+function TreeNode({
+  node, depth = 0, defaultOpen, subjectIdx = 0,
+}: {
   node: SyllabusNode;
   depth?: number;
   defaultOpen?: boolean;
+  subjectIdx?: number;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? depth < 2);
-  const hasChildren = !!node.children?.length;
-  const Icon = getNodeIcon(node.type);
-  const color = getNodeColor(node.type);
-  const bg    = getNodeBg(node.type);
+  const hasKids = !!node.children?.length;
+  const Icon = icon(node.type);
+  const palette = SUBJECT_PALETTE[subjectIdx % SUBJECT_PALETTE.length];
 
-  return (
-    <div>
-      <button
-        onClick={() => hasChildren && setOpen(o => !o)}
-        className="w-full text-left"
-        style={{ paddingLeft: `${depth * 20 + 12}px` }}
-      >
-        <div className={`flex items-start gap-3 py-2.5 pr-4 rounded-xl transition-colors ${hasChildren ? 'hover:bg-[#F9F9F9]' : ''}`}>
-          <span className="shrink-0 mt-1 w-4">
-            {hasChildren
-              ? open
-                ? <ChevronDown className="w-3.5 h-3.5 text-[#A1A1AA]" />
-                : <ChevronRight className="w-3.5 h-3.5 text-[#A1A1AA]" />
-              : null}
-          </span>
+  const isSubject = node.type === 'subject';
+  const style = isSubject
+    ? { text: palette.text, bg: palette.bg, iconBg: palette.bg, border: palette.border }
+    : {
+        text: TYPE_STYLE[node.type]?.text ?? '#52525B',
+        bg: 'transparent',
+        iconBg: TYPE_STYLE[node.type]?.bg ?? '#F4F4F5',
+        border: 'transparent',
+      };
 
-          <span
-            className="w-7 h-7 shrink-0 rounded-lg flex items-center justify-center mt-0.5"
-            style={{ backgroundColor: bg !== 'transparent' ? bg : undefined }}
+  if (isSubject) {
+    // Subject-level: render as a card header
+    return (
+      <div className="mb-4">
+        <button
+          onClick={() => hasKids && setOpen(o => !o)}
+          className="w-full text-left"
+        >
+          <div
+            className="flex items-center gap-3 px-5 py-4 rounded-2xl border transition-all hover:shadow-sm"
+            style={{ backgroundColor: style.bg, borderColor: style.border }}
           >
-            <Icon className="w-3.5 h-3.5" style={{ color }} strokeWidth={1.5} />
-          </span>
-
-          <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`font-medium leading-snug ${
-                node.type === 'subject' ? 'text-base text-[#27272A]' :
-                node.type === 'unit'    ? 'text-[15px] text-[#27272A]' :
-                node.type === 'chapter' ? 'text-sm text-[#3F3F46]' :
-                                          'text-sm text-[#52525B]'
-              }`}>{node.name}</span>
-
-              {node.weight && node.type !== 'subtopic' && (
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                  style={{ color: WEIGHT_CONFIG[node.weight].color, backgroundColor: WEIGHT_CONFIG[node.weight].bg }}>
-                  {WEIGHT_CONFIG[node.weight].label}
-                </span>
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+              style={{ backgroundColor: palette.accent + '18' }}
+            >
+              <Icon className="w-4.5 h-4.5" style={{ color: palette.accent }} strokeWidth={1.5} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-[15px]" style={{ color: style.text }}>{node.name}</p>
+              {node.description && (
+                <p className="text-xs mt-0.5 opacity-60" style={{ color: style.text }}>{node.description}</p>
               )}
-              {node.difficulty && node.type !== 'subtopic' && (
-                <span className="text-[10px] font-medium" style={{ color: DIFF_CONFIG[node.difficulty].color }}>
-                  {DIFF_CONFIG[node.difficulty].label}
-                </span>
-              )}
-              {node.estimatedHours && node.type !== 'subtopic' && (
-                <span className="text-[10px] text-[#A1A1AA] flex items-center gap-0.5">
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              {node.estimatedHours && node.estimatedHours > 0 && (
+                <span className="text-xs font-medium flex items-center gap-1 opacity-60" style={{ color: style.text }}>
                   <Clock className="w-3 h-3" />{node.estimatedHours}h
                 </span>
               )}
+              {hasKids && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: palette.accent + '15', color: palette.accent }}>
+                  {node.children!.length}
+                </span>
+              )}
+              {hasKids && (
+                <motion.span animate={{ rotate: open ? 90 : 0 }} transition={{ duration: 0.15 }}>
+                  <ChevronRight className="w-4 h-4 opacity-40" style={{ color: style.text }} />
+                </motion.span>
+              )}
             </div>
-            {node.description && (
-              <p className="text-[12px] text-[#A1A1AA] mt-0.5 leading-relaxed">{node.description}</p>
+          </div>
+        </button>
+
+        <AnimatePresence initial={false}>
+          {open && hasKids && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2, ease: 'easeInOut' }}
+              className="overflow-hidden"
+            >
+              <div className="ml-5 pl-4 border-l-2 mt-1 space-y-0.5" style={{ borderColor: palette.border }}>
+                {node.children!.map(child => (
+                  <TreeNode key={child.id} node={child} depth={depth + 1} defaultOpen={depth < 1} subjectIdx={subjectIdx} />
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
+  // Non-subject nodes
+  return (
+    <div>
+      <button
+        onClick={() => hasKids && setOpen(o => !o)}
+        className="w-full text-left group"
+      >
+        <div className={`flex items-center gap-2.5 py-2 px-3 rounded-xl transition-colors ${hasKids ? 'hover:bg-[#FAFAFA] cursor-pointer' : 'cursor-default'}`}>
+          {hasKids && (
+            <motion.span animate={{ rotate: open ? 90 : 0 }} transition={{ duration: 0.12 }} className="shrink-0">
+              <ChevronRight className="w-3 h-3 text-[#C4C4C7]" />
+            </motion.span>
+          )}
+          {!hasKids && <span className="w-3 shrink-0" />}
+
+          <span
+            className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
+            style={{ backgroundColor: style.iconBg }}
+          >
+            <Icon className="w-3 h-3" style={{ color: style.text }} strokeWidth={1.5} />
+          </span>
+
+          <span className={`flex-1 min-w-0 truncate ${
+            node.type === 'unit' ? 'text-sm font-semibold text-[#27272A]' :
+            node.type === 'chapter' ? 'text-[13px] font-medium text-[#3F3F46]' :
+            'text-[13px] text-[#52525B]'
+          }`}>
+            {node.name}
+          </span>
+
+          {/* Badges — weight on unit/chapter only, hours on anything with value */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {node.weight && (node.type === 'unit' || node.type === 'chapter') && WEIGHT_BADGE[node.weight] && (
+              <span
+                className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-px rounded"
+                style={{ color: WEIGHT_BADGE[node.weight].color, backgroundColor: WEIGHT_BADGE[node.weight].bg }}
+              >
+                {WEIGHT_BADGE[node.weight].label}
+              </span>
+            )}
+            {node.difficulty && DIFF_DOT[node.difficulty] && (
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: DIFF_DOT[node.difficulty] }} />
+            )}
+            {node.estimatedHours && node.estimatedHours > 0 && (
+              <span className="text-[10px] text-[#A1A1AA] tabular-nums">{node.estimatedHours}h</span>
+            )}
+            {hasKids && (
+              <span className="text-[9px] text-[#C4C4C7] bg-[#F4F4F5] px-1.5 py-px rounded-full">{node.children!.length}</span>
             )}
           </div>
-
-          {hasChildren && (
-            <span className="shrink-0 text-[10px] text-[#A1A1AA] bg-[#F4F4F5] px-2 py-0.5 rounded-full mt-1">
-              {node.children!.length}
-            </span>
-          )}
         </div>
       </button>
 
       <AnimatePresence initial={false}>
-        {open && hasChildren && (
+        {open && hasKids && (
           <motion.div
             initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18, ease: 'easeInOut' }}
+            exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.15, ease: 'easeInOut' }}
             className="overflow-hidden"
           >
-            <div className="relative" style={{ paddingLeft: `${depth * 20 + 32}px` }}>
-              <div className="absolute top-0 bottom-0 w-px bg-[#E4E4E7]" style={{ left: `${depth * 20 + 32}px` }} />
+            <div className="ml-[22px] pl-3 border-l border-[#EBEBEB] space-y-px">
               {node.children!.map(child => (
-                <TreeNode key={child.id} node={child} depth={depth + 1} defaultOpen={depth < 1} />
+                <TreeNode key={child.id} node={child} depth={depth + 1} defaultOpen={depth < 1} subjectIdx={subjectIdx} />
               ))}
             </div>
           </motion.div>
@@ -226,43 +279,16 @@ function TreeNode({ node, depth = 0, defaultOpen }: {
   );
 }
 
-// ── Stats bar ─────────────────────────────────────────────────────────────────
+// ── Schedule Modal ────────────────────────────────────────────────────────────
 
-function StatsBar({ tree }: { tree: SyllabusNode[] }) {
-  const totalHours = sumHours(tree);
-  const topics     = countLeaves(tree);
-  return (
-    <div className="grid grid-cols-3 gap-3 mb-6">
-      {[
-        { label: 'Subjects',    value: tree.length, icon: BookMarked, color: '#D97757' },
-        { label: 'Total topics', value: topics,     icon: Lightbulb,  color: '#7C3AED' },
-        { label: 'Est. hours',   value: `${totalHours}h`, icon: Clock, color: '#0F766E' },
-      ].map(s => (
-        <div key={s.label} className="bg-white border border-[#E4E4E7] rounded-2xl p-4 shadow-sm">
-          <s.icon className="w-4 h-4 mb-2" style={{ color: s.color }} strokeWidth={1.5} />
-          <p className="font-serif text-2xl font-semibold text-[#27272A]">{s.value}</p>
-          <p className="text-[11px] text-[#A1A1AA] mt-0.5">{s.label}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
+interface ScheduleResult { total: number; persisted: number }
 
-// ── Schedule modal ────────────────────────────────────────────────────────────
-
-interface ScheduleResult { total: number; persisted: number; }
-
-function ScheduleModal({
-  tree, onClose,
-}: {
-  tree: SyllabusNode[];
-  onClose: () => void;
-}) {
-  const today = new Date().toISOString().split('T')[0];
-  const inYear = new Date(Date.now() + 365 * 86400000).toISOString().split('T')[0];
+function ScheduleModal({ tree, onClose }: { tree: SyllabusNode[]; onClose: () => void }) {
+  const today    = new Date().toISOString().split('T')[0];
+  const in3Month = new Date(Date.now() + 90 * 86400000).toISOString().split('T')[0];
 
   const [startDate,   setStartDate]   = useState(today);
-  const [examDate,    setExamDate]    = useState(inYear);
+  const [examDate,    setExamDate]    = useState(in3Month);
   const [hoursPerDay, setHoursPerDay] = useState(4);
   const [startTime,   setStartTime]   = useState('09:00');
   const [sunOff,      setSunOff]      = useState(true);
@@ -271,61 +297,43 @@ function ScheduleModal({
   const [result,      setResult]      = useState<ScheduleResult | null>(null);
   const [err,         setErr]         = useState('');
 
-  const schedule = async () => {
-    setScheduling(true);
-    setErr('');
+  const go = async () => {
+    setScheduling(true); setErr('');
     const daysOff: number[] = [];
     if (sunOff) daysOff.push(0);
     if (satOff) daysOff.push(6);
     try {
-      const res  = await fetch('/api/syllabus/schedule', {
+      const r = await fetch('/api/syllabus/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tree, startDate, examDate, hoursPerDay, startTime, daysOff }),
       });
-      const data = await res.json();
-      if (!res.ok) { setErr(data.error ?? 'Something went wrong'); return; }
-      setResult({ total: data.total, persisted: data.persisted });
-    } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setScheduling(false);
-    }
+      const d = await r.json();
+      if (!r.ok) { setErr(d.error ?? 'Failed'); return; }
+      setResult({ total: d.total, persisted: d.persisted });
+    } catch (e: any) { setErr(e.message); }
+    finally { setScheduling(false); }
   };
 
-  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div>
-      <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#A1A1AA] mb-1.5">{label}</label>
-      {children}
-    </div>
-  );
-
-  const inputCls = "w-full bg-white border border-[#E4E4E7] rounded-xl px-3 py-2 text-sm text-[#27272A] focus:outline-none focus:border-[#27272A] transition-colors";
+  const inp = "w-full bg-white border border-[#E4E4E7] rounded-xl px-3 py-2.5 text-sm text-[#27272A] focus:outline-none focus:border-[#27272A] transition-colors";
 
   return (
     <>
-      {/* Backdrop */}
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/25 backdrop-blur-sm z-40" onClick={onClose} />
       <motion.div
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40"
-        onClick={onClose}
-      />
-
-      {/* Panel */}
-      <motion.div
-        initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 24 }}
+        initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 24, scale: 0.97 }}
         transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
         className="fixed bottom-0 left-0 right-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:max-w-md w-full bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl z-50 overflow-hidden"
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-[#F4F4F5]">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#EFF6FF] flex items-center justify-center">
-              <Calendar className="w-4.5 h-4.5 text-[#1D4ED8]" strokeWidth={1.5} />
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500/10 to-purple-500/10 flex items-center justify-center">
+              <Calendar className="w-5 h-5 text-blue-600" strokeWidth={1.5} />
             </div>
             <div>
-              <p className="font-semibold text-[#27272A] text-sm">Schedule on Calendar</p>
-              <p className="text-[11px] text-[#A1A1AA]">AI will sequence topics across your study days</p>
+              <p className="font-semibold text-[#27272A]">Schedule on Calendar</p>
+              <p className="text-[11px] text-[#A1A1AA]">AI sequences topics across your study days</p>
             </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-[#F4F4F5] flex items-center justify-center transition-colors">
@@ -334,84 +342,63 @@ function ScheduleModal({
         </div>
 
         {result ? (
-          /* Success state */
-          <div className="px-6 py-8 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-4">
-              <CalendarCheck className="w-7 h-7 text-green-600" strokeWidth={1.5} />
+          <div className="px-6 py-10 text-center">
+            <div className="w-16 h-16 rounded-3xl bg-green-50 flex items-center justify-center mx-auto mb-5">
+              <CalendarCheck className="w-8 h-8 text-green-600" strokeWidth={1.5} />
             </div>
-            <p className="font-serif text-xl text-[#27272A] mb-1">{result.total} sessions scheduled</p>
-            <p className="text-sm text-[#71717A] mb-6">
-              {result.persisted > 0
-                ? `All ${result.persisted} events saved to your calendar`
-                : 'Events created (set up DB to persist across sessions)'}
+            <p className="font-serif text-2xl text-[#27272A] mb-1">{result.total} sessions scheduled</p>
+            <p className="text-sm text-[#71717A] mb-8">
+              {result.persisted > 0 ? `All events saved to your calendar` : 'Events created locally'}
             </p>
-            <Link
-              href="/calendar"
-              onClick={onClose}
-              className="inline-flex items-center gap-2 bg-[#27272A] text-white text-sm font-medium px-5 py-3 rounded-2xl hover:bg-[#3F3F46] transition-colors"
-            >
+            <Link href="/calendar" onClick={onClose}
+              className="inline-flex items-center gap-2 bg-[#27272A] text-white text-sm font-medium px-6 py-3 rounded-2xl hover:bg-[#3F3F46] transition-colors">
               View Calendar <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
         ) : (
-          /* Form */
           <div className="px-6 py-5 space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Start date">
-                <input type="date" value={startDate} min={today} onChange={e => setStartDate(e.target.value)} className={inputCls} />
-              </Field>
-              <Field label="Exam / deadline">
-                <input type="date" value={examDate} min={startDate} onChange={e => setExamDate(e.target.value)} className={inputCls} />
-              </Field>
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-[#A1A1AA] mb-1.5">Start date</label>
+                <input type="date" value={startDate} min={today} onChange={e => setStartDate(e.target.value)} className={inp} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-[#A1A1AA] mb-1.5">Exam / deadline</label>
+                <input type="date" value={examDate} min={startDate} onChange={e => setExamDate(e.target.value)} className={inp} />
+              </div>
             </div>
-
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Hours per day">
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-[#A1A1AA] mb-1.5">Hours per day</label>
                 <div className="flex items-center gap-3">
-                  <input type="range" min={1} max={10} value={hoursPerDay}
-                    onChange={e => setHoursPerDay(Number(e.target.value))}
-                    className="flex-1" />
-                  <span className="text-sm font-medium text-[#27272A] w-8 text-right">{hoursPerDay}h</span>
+                  <input type="range" min={1} max={10} value={hoursPerDay} onChange={e => setHoursPerDay(Number(e.target.value))} className="flex-1 accent-[#27272A]" />
+                  <span className="text-sm font-semibold text-[#27272A] w-8 text-right tabular-nums">{hoursPerDay}h</span>
                 </div>
-              </Field>
-              <Field label="Session start time">
-                <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className={inputCls} />
-              </Field>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-[#A1A1AA] mb-1.5">Start time</label>
+                <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className={inp} />
+              </div>
             </div>
-
-            <Field label="Days off">
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-[#A1A1AA] mb-1.5">Days off</label>
               <div className="flex gap-2">
                 {[
-                  { label: 'Sun', val: sunOff, set: setSunOff },
-                  { label: 'Sat', val: satOff, set: setSatOff },
-                ].map(({ label, val, set }) => (
-                  <button
-                    key={label}
-                    onClick={() => set(v => !v)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                      val ? 'bg-[#27272A] text-white border-[#27272A]' : 'bg-white text-[#71717A] border-[#E4E4E7] hover:border-[#27272A]'
-                    }`}
-                  >
-                    {label}
-                  </button>
+                  { l: 'Sun', v: sunOff, s: setSunOff },
+                  { l: 'Sat', v: satOff, s: setSatOff },
+                ].map(({ l, v, s }) => (
+                  <button key={l} onClick={() => s((x: boolean) => !x)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      v ? 'bg-[#27272A] text-white border-[#27272A] shadow-sm' : 'bg-white text-[#71717A] border-[#E4E4E7] hover:border-[#27272A]'
+                    }`}>{l}</button>
                 ))}
               </div>
-            </Field>
-
-            {err && (
-              <p className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2">⚠ {err}</p>
-            )}
-
-            <button
-              onClick={schedule}
-              disabled={scheduling || !startDate || !examDate || startDate >= examDate}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-[#27272A] text-white text-sm font-medium hover:bg-[#3F3F46] transition-colors disabled:opacity-40"
-            >
-              {scheduling
-                ? <><RefreshCw className="w-4 h-4 animate-spin" />Sequencing topics…</>
-                : <><Calendar className="w-4 h-4" />Create Study Schedule</>}
+            </div>
+            {err && <p className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2">⚠ {err}</p>}
+            <button onClick={go} disabled={scheduling || !startDate || !examDate || startDate >= examDate}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-[#27272A] text-white text-sm font-medium hover:bg-[#3F3F46] transition-colors disabled:opacity-40">
+              {scheduling ? <><RefreshCw className="w-4 h-4 animate-spin" />Sequencing…</> : <><Calendar className="w-4 h-4" />Create Study Schedule</>}
             </button>
-            <p className="text-[11px] text-center text-[#A1A1AA]">AI will order topics logically, then fill your study days</p>
           </div>
         )}
       </motion.div>
@@ -419,7 +406,7 @@ function ScheduleModal({
   );
 }
 
-// ── Demo content ──────────────────────────────────────────────────────────────
+// ── Demo ──────────────────────────────────────────────────────────────────────
 
 const DEMO_SYLLABUS = `Physics - JEE Advanced 2027
 Unit 1: Mechanics
@@ -432,161 +419,123 @@ Unit 2: Thermodynamics
 
 Mathematics - JEE Advanced 2027
 Unit 1: Calculus
-  Chapter 1: Limits, Continuity, Differentiability
-  Chapter 2: Integration - Indefinite, Definite, Applications
-  Chapter 3: Differential Equations
+  Limits, Continuity, Differentiability
+  Integration - Indefinite, Definite, Applications
+  Differential Equations
 Unit 2: Algebra
-  Chapter 4: Complex Numbers, Matrices & Determinants
-  Chapter 5: Permutation, Combination, Binomial Theorem`;
+  Complex Numbers, Matrices & Determinants
+  Permutation, Combination, Binomial Theorem`;
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+type Sync = 'idle' | 'saving' | 'saved' | 'error';
 
 export default function SyllabusPage() {
-  const [raw,       setRaw]       = useState('');
-  const [tree,      setTree]      = useState<SyllabusNode[]>([]);
-  const [loading,   setLoading]   = useState(false);
-  const [dbLoading, setDbLoading] = useState(true);   // loading from DB on mount
-  const [error,     setError]     = useState('');
-  const [copied,    setCopied]    = useState(false);
-  const [expandAll, setExpandAll] = useState(false);
-  const [treeKey,   setTreeKey]   = useState(0);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [raw,          setRaw]          = useState('');
+  const [tree,         setTree]         = useState<SyllabusNode[]>([]);
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState('');
+  const [copied,       setCopied]       = useState(false);
+  const [treeKey,      setTreeKey]      = useState(0);
+  const [sync,         setSync]         = useState<Sync>('idle');
   const [showSchedule, setShowSchedule] = useState(false);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-
-  // ── On mount: L1 (localStorage) → L2 (DB) ─────────────────────────────────
+  // ── Load on mount ──────────────────────────────────────────────────────────
   useEffect(() => {
-    // Immediately restore from localStorage for instant display
     const ls = lsLoad();
-    if (ls?.tree?.length) {
-      setTree(sanitizeTree(ls.tree));
-      setRaw(ls.raw ?? '');
-    }
+    if (ls?.tree?.length) { setTree(sanitizeTree(ls.tree)); setRaw(ls.raw ?? ''); }
 
-    // Then try DB for the authoritative latest version
-    fetch('/api/syllabus')
-      .then(r => r.json())
-      .then(data => {
-        if (data?.tree?.length) {
-          setTree(sanitizeTree(data.tree));
-          setRaw(data.raw ?? '');
-          lsSave(data.tree, data.raw ?? '');
-        }
-      })
-      .catch(() => {/* DB not set up yet – localStorage is fine */})
-      .finally(() => setDbLoading(false));
+    fetch('/api/syllabus').then(r => r.json()).then(d => {
+      if (d?.tree?.length) {
+        const t = sanitizeTree(d.tree);
+        setTree(t); setRaw(d.raw ?? ''); lsSave(t, d.raw ?? '');
+      }
+    }).catch(() => {});
   }, []);
 
-  // ── Background DB save (debounced) ────────────────────────────────────────
-  const saveToDBDebounced = useCallback((tree: SyllabusNode[], raw: string) => {
-    clearTimeout(saveTimer.current);
-    setSaveStatus('saving');
-    saveTimer.current = setTimeout(async () => {
+  // ── DB sync (debounced) ────────────────────────────────────────────────────
+  const dbSave = useCallback((t: SyllabusNode[], r: string) => {
+    clearTimeout(timer.current); setSync('saving');
+    timer.current = setTimeout(async () => {
       try {
-        await fetch('/api/syllabus', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tree, raw }),
-        });
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 3000);
-      } catch {
-        setSaveStatus('error');
-      }
+        await fetch('/api/syllabus', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tree: t, raw: r }) });
+        setSync('saved'); setTimeout(() => setSync('idle'), 3000);
+      } catch { setSync('error'); }
     }, 800);
   }, []);
 
-  // ── Parse ─────────────────────────────────────────────────────────────────
-  const parse = useCallback(async (text?: string) => {
-    const input = (text ?? raw).trim();
+  // ── Parse ──────────────────────────────────────────────────────────────────
+  const parse = useCallback(async (text: string) => {
+    const input = text.trim();
     if (!input) { setError('Paste your syllabus above first.'); return; }
-    setLoading(true);
-    setError('');
+    setLoading(true); setError('');
     try {
-      const res  = await fetch('/api/syllabus', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch('/api/syllabus', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: input }),
       });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error ?? 'Something went wrong'); return; }
-
-      const clean = sanitizeTree(Array.isArray(data.tree) ? data.tree : []);
-      setTree(clean);
-      lsSave(clean, input);
-      saveToDBDebounced(clean, input);
-      setTreeKey(k => k + 1);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [raw, saveToDBDebounced]);
+      const d = await res.json();
+      if (!res.ok) { setError(d.error ?? 'Something went wrong'); return; }
+      const clean = sanitizeTree(Array.isArray(d.tree) ? d.tree : []);
+      setTree(clean); lsSave(clean, input); dbSave(clean, input); setTreeKey(k => k + 1);
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  }, [dbSave]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => {
-      const text = ev.target?.result as string;
-      setRaw(text);
-      parse(text);
-    };
+    reader.onload = ev => { const t = ev.target?.result as string; setRaw(t); parse(t); };
     reader.readAsText(file);
   }, [parse]);
 
-  const copyJSON = async () => {
-    await navigator.clipboard.writeText(JSON.stringify(tree, null, 2));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const clear = () => {
     setTree([]); setRaw(''); lsClear();
-    // Clear DB too
-    fetch('/api/syllabus', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tree: [], raw: '' }),
-    }).catch(() => {});
+    fetch('/api/syllabus', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tree: [], raw: '' }) }).catch(() => {});
+  };
+
+  const copyJSON = async () => {
+    await navigator.clipboard.writeText(JSON.stringify(tree, null, 2));
+    setCopied(true); setTimeout(() => setCopied(false), 2000);
   };
 
   const hasTree = tree.length > 0;
+  const totalHours = hasTree ? sumHours(tree) : 0;
+  const totalTopics = hasTree ? countNodes(tree, 'topic') + countNodes(tree, 'chapter') : 0;
 
   return (
-    <div className="max-w-5xl mx-auto py-8">
-      {/* Header */}
+    <div className="max-w-6xl mx-auto py-8">
+      {/* ── Header ── */}
       <div className="flex items-start justify-between mb-8">
         <div>
-          <h1 className="font-serif text-3xl text-[#27272A]">Syllabus Organizer</h1>
-          <p className="text-[#A1A1AA] text-sm mt-1">Paste your syllabus · AI structures it into a context-aware tree</p>
+          <div className="flex items-center gap-3 mb-1">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 flex items-center justify-center">
+              <GraduationCap className="w-5 h-5 text-[#D97757]" strokeWidth={1.5} />
+            </div>
+            <h1 className="font-serif text-3xl text-[#27272A]">Syllabus Organizer</h1>
+          </div>
+          <p className="text-[#A1A1AA] text-sm ml-[52px]">Paste raw text → AI builds an interactive study tree</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Sync status */}
-          {saveStatus !== 'idle' && (
-            <span className="flex items-center gap-1.5 text-[11px] text-[#A1A1AA]">
-              {saveStatus === 'saving' && <><RefreshCw className="w-3 h-3 animate-spin" />Saving…</>}
-              {saveStatus === 'saved'  && <><Cloud className="w-3 h-3 text-green-500" />Saved</>}
-              {saveStatus === 'error'  && <><CloudOff className="w-3 h-3 text-amber-500" />Local only</>}
+          {sync !== 'idle' && (
+            <span className="flex items-center gap-1.5 text-[11px] text-[#A1A1AA] mr-1">
+              {sync === 'saving' && <><RefreshCw className="w-3 h-3 animate-spin" />Saving…</>}
+              {sync === 'saved'  && <><Cloud className="w-3 h-3 text-green-500" />Synced</>}
+              {sync === 'error'  && <><CloudOff className="w-3 h-3 text-amber-500" />Local</>}
             </span>
           )}
           {hasTree && (
             <>
-              <button
-                onClick={copyJSON}
-                className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border border-[#E4E4E7] text-[#71717A] hover:border-[#27272A] hover:text-[#27272A] transition-colors"
-              >
+              <button onClick={copyJSON}
+                className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border border-[#E4E4E7] text-[#71717A] hover:border-[#27272A] hover:text-[#27272A] transition-colors">
                 {copied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
-                {copied ? 'Copied!' : 'Export JSON'}
+                {copied ? 'Copied!' : 'Export'}
               </button>
-              <button
-                onClick={clear}
-                className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border border-[#E4E4E7] text-[#71717A] hover:border-red-200 hover:text-red-500 transition-colors"
-              >
+              <button onClick={clear}
+                className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border border-[#E4E4E7] text-[#71717A] hover:border-red-200 hover:text-red-500 transition-colors">
                 <Trash2 className="w-3.5 h-3.5" /> Clear
               </button>
             </>
@@ -594,29 +543,24 @@ export default function SyllabusPage() {
         </div>
       </div>
 
-      <div className={`grid gap-6 ${hasTree ? 'grid-cols-1 lg:grid-cols-[420px_1fr]' : 'grid-cols-1'}`}>
-
-        {/* ── Input panel ── */}
+      <div className={`grid gap-8 ${hasTree ? 'grid-cols-1 lg:grid-cols-[380px_1fr]' : 'grid-cols-1 max-w-2xl mx-auto'}`}>
+        {/* ── Left: Input ── */}
         <div className="space-y-4">
-          <div
-            onDrop={handleDrop}
-            onDragOver={e => e.preventDefault()}
-            className="relative"
-          >
+          <div onDrop={handleDrop} onDragOver={e => e.preventDefault()} className="relative group">
             <textarea
               value={raw}
               onChange={e => setRaw(e.target.value)}
-              placeholder={`Paste your syllabus here, or drag & drop a .txt file…\n\nExample:\n${DEMO_SYLLABUS.slice(0, 180)}…`}
-              className="w-full h-72 text-sm text-[#27272A] placeholder:text-[#C4C4C7] bg-white border border-[#E4E4E7] rounded-2xl px-4 py-4 resize-none focus:outline-none focus:border-[#27272A] transition-colors leading-relaxed font-mono"
+              placeholder={`Paste your syllabus here…\n\nExample:\nPhysics - JEE Advanced\n  Unit 1: Mechanics\n    Kinematics, Laws of Motion\n  Unit 2: Thermodynamics\n    Kinetic Theory, Carnot Cycle`}
+              className="w-full h-64 text-sm text-[#27272A] placeholder:text-[#D4D4D8] bg-white border border-[#E4E4E7] rounded-2xl px-4 py-4 resize-none focus:outline-none focus:border-[#27272A] focus:shadow-sm transition-all leading-relaxed font-mono"
             />
-            <div className="absolute bottom-3 right-3 flex items-center gap-1.5 text-[#D4D4D8] text-[11px] pointer-events-none">
-              <Upload className="w-3 h-3" /> drag & drop
+            <div className="absolute bottom-3 right-3 flex items-center gap-1.5 text-[#D4D4D8] text-[10px] pointer-events-none">
+              <Upload className="w-3 h-3" /> or drag a file
             </div>
           </div>
 
           <div className="flex gap-2">
             <button
-              onClick={() => parse()}
+              onClick={() => parse(raw)}
               disabled={loading || !raw.trim()}
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-[#27272A] text-white text-sm font-medium hover:bg-[#3F3F46] transition-colors disabled:opacity-40"
             >
@@ -625,7 +569,7 @@ export default function SyllabusPage() {
                 : <><Sparkles className="w-4 h-4" />Organise with AI</>}
             </button>
             <button
-              onClick={() => setRaw(DEMO_SYLLABUS)}
+              onClick={() => { setRaw(DEMO_SYLLABUS); parse(DEMO_SYLLABUS); }}
               className="px-4 py-3 rounded-2xl border border-[#E4E4E7] text-[#71717A] text-sm hover:border-[#27272A] hover:text-[#27272A] transition-colors"
             >
               Try demo
@@ -638,103 +582,121 @@ export default function SyllabusPage() {
             </div>
           )}
 
+          {/* Empty-state tips */}
           {!hasTree && !loading && (
-            <div className="bg-[#FFFBF7] border border-[#F0E4D7] rounded-2xl p-4 space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#A1A1AA]">Tips</p>
+            <div className="space-y-3 mt-4">
               {[
-                'Copy directly from your PDF or study guide — any format works',
-                'Multiple subjects supported: each becomes its own tree branch',
-                'AI estimates study hours & flags high-weight exam topics',
-                'Your tree syncs to the cloud and reloads on every visit',
-              ].map(tip => (
-                <div key={tip} className="flex items-start gap-2">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#D97757] shrink-0 mt-0.5" />
-                  <p className="text-[12px] text-[#71717A] leading-relaxed">{tip}</p>
+                { icon: FileText, text: 'Paste from PDF, website, or study guide', color: '#D97757' },
+                { icon: Zap,      text: 'AI detects structure — no formatting needed', color: '#7C3AED' },
+                { icon: Target,   text: 'High-weight exam topics flagged automatically', color: '#0EA5E9' },
+                { icon: BarChart3, text: 'Study hours estimated per topic', color: '#10B981' },
+              ].map(({ icon: Ic, text, color }) => (
+                <div key={text} className="flex items-center gap-3 px-4 py-3 bg-white border border-[#F4F4F5] rounded-xl">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: color + '10' }}>
+                    <Ic className="w-3.5 h-3.5" style={{ color }} strokeWidth={1.5} />
+                  </div>
+                  <p className="text-[13px] text-[#52525B]">{text}</p>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* ── Tree panel ── */}
+        {/* ── Right: Tree ── */}
         {hasTree && (
-          <motion.div initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }}>
-            <StatsBar tree={tree} />
-
-            <div className="flex items-center justify-between mb-3 px-1">
-              <p className="text-xs font-semibold uppercase tracking-widest text-[#A1A1AA]">Content Tree</p>
-              <div className="flex gap-2 text-[11px] text-[#71717A]">
-                <button onClick={() => { setExpandAll(true);  setTreeKey(k => k + 1); }} className="hover:text-[#27272A] transition-colors">Expand all</button>
-                <span className="text-[#E4E4E7]">·</span>
-                <button onClick={() => { setExpandAll(false); setTreeKey(k => k + 1); }} className="hover:text-[#27272A] transition-colors">Collapse all</button>
-              </div>
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}>
+            {/* Stats row */}
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              {[
+                { label: 'Subjects',   value: tree.length,  icon: BookMarked, gradient: 'from-amber-500/10 to-orange-500/10', color: '#D97757' },
+                { label: 'Topics',     value: totalTopics,  icon: Lightbulb,  gradient: 'from-violet-500/10 to-purple-500/10', color: '#7C3AED' },
+                { label: 'Est. hours', value: `${totalHours}h`, icon: Clock,  gradient: 'from-teal-500/10 to-emerald-500/10', color: '#0F766E' },
+              ].map(s => (
+                <div key={s.label} className="bg-white border border-[#F0F0F0] rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+                  <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${s.gradient} flex items-center justify-center mb-3`}>
+                    <s.icon className="w-4 h-4" style={{ color: s.color }} strokeWidth={1.5} />
+                  </div>
+                  <p className="font-serif text-2xl font-semibold text-[#27272A] tabular-nums">{s.value}</p>
+                  <p className="text-[11px] text-[#A1A1AA] mt-0.5">{s.label}</p>
+                </div>
+              ))}
             </div>
 
-            <div key={treeKey} className="bg-white border border-[#E4E4E7] rounded-2xl shadow-sm overflow-hidden">
-              {/* Legend */}
-              <div className="border-b border-[#F4F4F5] px-4 py-3 flex flex-wrap gap-4">
-                {(['subject', 'unit', 'chapter', 'topic'] as SyllabusNode['type'][]).map(t => {
-                  const Ic = getNodeIcon(t);
-                  return (
-                    <span key={t} className="flex items-center gap-1.5 text-[11px] text-[#71717A]">
-                      <Ic className="w-3 h-3" style={{ color: getNodeColor(t) }} strokeWidth={1.5} />
-                      <span className="capitalize">{t}</span>
-                    </span>
-                  );
-                })}
-                <span className="ml-auto flex items-center gap-3 text-[10px] text-[#A1A1AA]">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400" />High</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" />Med</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400" />Low</span>
-                </span>
+            {/* Tree container */}
+            <div key={treeKey} className="bg-white border border-[#F0F0F0] rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
+              {/* Tree header */}
+              <div className="border-b border-[#F4F4F5] px-5 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-[#A1A1AA]">Content Tree</p>
+                  <div className="flex items-center gap-2">
+                    {(['subject', 'unit', 'chapter', 'topic'] as const).map(t => {
+                      const Ic = icon(t);
+                      const color = t === 'subject' ? '#D97757' : t === 'unit' ? '#7C3AED' : t === 'chapter' ? '#0369A1' : '#047857';
+                      return (
+                        <span key={t} className="flex items-center gap-1 text-[10px] text-[#A1A1AA]">
+                          <Ic className="w-2.5 h-2.5" style={{ color }} strokeWidth={1.5} />
+                          <span className="capitalize hidden sm:inline">{t}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center gap-1.5 text-[9px] text-[#C4C4C7]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400" />H
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />M
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400" />L
+                  </span>
+                </div>
               </div>
 
-              <div className="py-2 px-1">
-                {tree.map(node => (
-                  <TreeNode key={node.id} node={node} depth={0} defaultOpen={expandAll || true} />
+              {/* Tree body */}
+              <div className="p-4 space-y-1">
+                {tree.map((node, i) => (
+                  <TreeNode key={node.id} node={node} depth={0} defaultOpen={true} subjectIdx={i} />
                 ))}
               </div>
             </div>
 
-            {/* Schedule CTA */}
-            <motion.button
-              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-              onClick={() => setShowSchedule(true)}
-              className="mt-4 w-full flex items-center justify-center gap-2.5 py-3.5 rounded-2xl bg-gradient-to-r from-[#1D4ED8] to-[#7C3AED] text-white text-sm font-semibold hover:opacity-90 transition-opacity shadow-sm"
-            >
-              <Calendar className="w-4 h-4" />
-              Schedule across Calendar
-              <ArrowRight className="w-4 h-4 ml-auto opacity-70" />
-            </motion.button>
-
-            <button
-              onClick={() => parse(raw)}
-              disabled={loading}
-              className="mt-2 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-[#E4E4E7] text-sm text-[#71717A] hover:border-[#27272A] hover:text-[#27272A] transition-colors disabled:opacity-40"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              Re-analyse
-            </button>
+            {/* Action buttons */}
+            <div className="mt-5 space-y-2">
+              <button
+                onClick={() => setShowSchedule(true)}
+                className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-2xl bg-gradient-to-r from-[#1D4ED8] to-[#7C3AED] text-white text-sm font-semibold hover:opacity-90 transition-opacity shadow-sm"
+              >
+                <Calendar className="w-4 h-4" />
+                Schedule across Calendar
+                <ArrowRight className="w-4 h-4 opacity-60" />
+              </button>
+              <button
+                onClick={() => parse(raw)}
+                disabled={loading}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-[#E4E4E7] text-sm text-[#71717A] hover:border-[#27272A] hover:text-[#27272A] transition-colors disabled:opacity-40"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                Re-analyse
+              </button>
+            </div>
           </motion.div>
         )}
 
-        {/* Loading skeleton (first parse, no existing tree) */}
+        {/* Loading skeleton */}
         {loading && !hasTree && (
           <div className="animate-pulse space-y-4">
             <div className="grid grid-cols-3 gap-3">
               {[0, 1, 2].map(i => (
-                <div key={i} className="bg-white border border-[#E4E4E7] rounded-2xl p-4 h-20">
-                  <div className="w-6 h-6 bg-[#F4F4F5] rounded mb-2" />
-                  <div className="h-5 w-10 bg-[#F4F4F5] rounded mb-1" />
+                <div key={i} className="bg-white border border-[#F0F0F0] rounded-2xl p-4 h-24">
+                  <div className="w-8 h-8 bg-[#F4F4F5] rounded-xl mb-3" />
+                  <div className="h-6 w-12 bg-[#F4F4F5] rounded mb-1" />
                   <div className="h-3 w-16 bg-[#F4F4F5] rounded" />
                 </div>
               ))}
             </div>
-            <div className="bg-white border border-[#E4E4E7] rounded-2xl p-4 space-y-3">
-              {[0.7, 0.9, 0.6, 0.8, 0.5, 0.75].map((w, i) => (
-                <div key={i} className="flex items-center gap-3" style={{ paddingLeft: `${(i % 3) * 20}px` }}>
-                  <div className="w-5 h-5 bg-[#F4F4F5] rounded-lg shrink-0" />
-                  <div className="h-4 bg-[#F4F4F5] rounded" style={{ width: `${w * 100}%` }} />
+            <div className="bg-white border border-[#F0F0F0] rounded-2xl p-5 space-y-4">
+              {[0.8, 1, 0.6, 0.9, 0.5, 0.7, 0.85].map((w, i) => (
+                <div key={i} className="flex items-center gap-3" style={{ paddingLeft: `${(i % 3) * 24}px` }}>
+                  <div className="w-6 h-6 bg-[#F4F4F5] rounded-lg shrink-0" />
+                  <div className="h-4 bg-[#F4F4F5] rounded-lg" style={{ width: `${w * 100}%` }} />
                 </div>
               ))}
             </div>
@@ -744,9 +706,7 @@ export default function SyllabusPage() {
 
       {/* Schedule modal */}
       <AnimatePresence>
-        {showSchedule && (
-          <ScheduleModal tree={tree} onClose={() => setShowSchedule(false)} />
-        )}
+        {showSchedule && <ScheduleModal tree={tree} onClose={() => setShowSchedule(false)} />}
       </AnimatePresence>
     </div>
   );
